@@ -24,6 +24,8 @@ def run_futures_backtest(
     multiplier=50,
     t_cost=2.5,
     roll_window=1/365,
+    direction=-1,          # +1 = long, -1 = short
+    hedge_contracts=1,     # number of contracts per signal
     save_path=None,
     plot=True
 ):
@@ -32,6 +34,7 @@ def run_futures_backtest(
     # Extract data
     # =========================
     fut_price = analysis_df['PX'][futures]
+    fair_price = analysis_df['Fair'][futures]
     T = analysis_df['T']
 
     # =========================
@@ -40,11 +43,25 @@ def run_futures_backtest(
     front_idx = 0
     F = pd.Series(index=fut_price.index, dtype=object)
 
+    rolling_spread = pd.DataFrame(
+        index=fut_price.index,
+        columns=["fair", "actual"]
+    )
+
     for i, date in enumerate(fut_price.index):
         front = futures[front_idx]
 
         if T.loc[date, front] <= roll_window:
             if front_idx < len(futures) - 1:
+                near = futures[front_idx]
+                far = futures[front_idx + 1]
+
+                fair = fair_price.loc[date, far] - fair_price.loc[date, near]
+                actual = fut_price.loc[date, far] - fut_price.loc[date, near]
+
+                rolling_spread.loc[date, "fair"] = fair
+                rolling_spread.loc[date, "actual"] = actual
+
                 front_idx += 1
 
         F.iloc[i] = futures[front_idx]
@@ -55,11 +72,12 @@ def run_futures_backtest(
     positions = pd.DataFrame(0, index=fut_price.index, columns=futures)
 
     for date in positions.index:
-        positions.loc[date, F.loc[date]] = -1  # short 1 contract
+        positions.loc[date, F.loc[date]] = direction * hedge_contracts
 
     # =========================
     # 3. Transaction costs
     # =========================
+    print("\n========== Rolling Dates ==========")
     trades = positions.diff().abs().sum(axis=1).fillna(0)
     transaction_cost = trades * t_cost
     roll_dates = trades[trades == 2]
@@ -125,7 +143,8 @@ def run_futures_backtest(
         "PnL": net_pnl,
         "positions": positions,
         "front_contract": F,
-        "trades": trades
+        "trades": trades,
+        "rolling_spread": rolling_spread
     }
 
 
@@ -159,6 +178,9 @@ print(futures)
 results_list = []
 for d in range(1, 5):
     roll_window = d / 365
+    print("\n========== Data Range ==========")
+    print(f"Start: {analysis_df.index.min()}")
+    print(f"End:   {analysis_df.index.max()}")
 
     print(f"\nRunning backtest: roll_window = {d} days")
 
@@ -169,12 +191,22 @@ for d in range(1, 5):
         multiplier=50,
         t_cost=2.5,
         roll_window=roll_window,
+        direction=-1,  # +1 = long, -1 = short
+        hedge_contracts=1,  # number of contracts per signal
         save_path=None,
         plot=False
     )
 
     NAV = res["NAV"]
     PnL = res["PnL"]
+
+    roll_spread = res["rolling_spread"].dropna()
+    print("\n========== Rolling Spread ==========")
+    print(roll_spread)
+
+    # res["rolling_spread"].plot(title="Rolling Spread (Actual vs Fair)")
+    # plt.axhline(0, linestyle="--")
+    # plt.show()
 
     returns = PnL / 100_000_000
     sharpe = (returns.mean() / (returns.std())) * np.sqrt(252)
@@ -183,11 +215,9 @@ for d in range(1, 5):
         "roll_window_days": d,
         "final_nav": NAV.iloc[-1],
         "total_return_pct": (NAV.iloc[-1] / 100_000_000 - 1) * 100,
-        "sharpe": sharpe,
-        "total_rolling": res["trades"].sum()
+        "sharpe": sharpe
     })
 
-    results_df = pd.DataFrame(results_list)
-    results_df = results_df.sort_values("roll_window_days", ascending=False)
-
+results_df = pd.DataFrame(results_list)
+results_df = results_df.sort_values("roll_window_days", ascending=False)
 print(results_df)
