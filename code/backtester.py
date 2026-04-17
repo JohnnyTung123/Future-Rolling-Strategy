@@ -45,7 +45,7 @@ def run_futures_backtest(
 
     rolling_spread = pd.DataFrame(
         index=fut_price.index,
-        columns=["fair", "actual"]
+        columns=["fair", "market", "difference"]
     )
 
     for i, date in enumerate(fut_price.index):
@@ -57,10 +57,13 @@ def run_futures_backtest(
                 far = futures[front_idx + 1]
 
                 fair = fair_price.loc[date, far] - fair_price.loc[date, near]
-                actual = fut_price.loc[date, far] - fut_price.loc[date, near]
+                market = fut_price.loc[date, far] - fut_price.loc[date, near]
 
                 rolling_spread.loc[date, "fair"] = fair
-                rolling_spread.loc[date, "actual"] = actual
+                rolling_spread.loc[date, "market"] = market
+                rolling_spread["difference"] = (
+                        rolling_spread["market"] - rolling_spread["fair"]
+                )
 
                 front_idx += 1
 
@@ -77,11 +80,9 @@ def run_futures_backtest(
     # =========================
     # 3. Transaction costs
     # =========================
-    print("\n========== Rolling Dates ==========")
     trades = positions.diff().abs().sum(axis=1).fillna(0)
     transaction_cost = trades * t_cost
     roll_dates = trades[trades == 2]
-    print(roll_dates)
 
     # =========================
     # 4. PnL
@@ -203,10 +204,12 @@ for d in range(1, 5):
     roll_spread = res["rolling_spread"].dropna()
     print("\n========== Rolling Spread ==========")
     print(roll_spread)
+    net_market = roll_spread["market"].sum()
+    net_fair = roll_spread["fair"].sum()
+    net_diff = roll_spread["difference"].sum()
 
-    # res["rolling_spread"].plot(title="Rolling Spread (Actual vs Fair)")
-    # plt.axhline(0, linestyle="--")
-    # plt.show()
+    print(f"Total Market Roll: {net_market:.4f}")
+    print(f"Total Fair Roll:   {net_fair:.4f}")
 
     returns = PnL / 100_000_000
     sharpe = (returns.mean() / (returns.std())) * np.sqrt(252)
