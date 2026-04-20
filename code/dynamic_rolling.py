@@ -26,6 +26,8 @@ def run_dynamic_roll_strategy(
     t_cost=2.5,
     lookback=20,
     z_threshold=2.0,
+    # direction=-1,
+    # hedge_contracts=1,
     plot=True
 ):
     total_market_roll = 0.0
@@ -244,7 +246,9 @@ results = run_dynamic_roll_strategy(
     initial_nav=100_000_000,
     multiplier=50,
     t_cost=2.5,
-    lookback=20,
+    lookback=30,
     z_threshold=2.0,
-    plot=True
+    # direction=-1,
+    # hedge_contracts=1,
+    plot=True,
 )
