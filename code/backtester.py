@@ -177,13 +177,25 @@ print(futures)
 # E-mini S&P 500 (ES) futures expire quarterly on the third Friday of March, June, September, and December
 # ISSUE: I don't have access to close price at weekend. T-5(Sunday) is the same as T-4(Monday)
 results_list = []
-for d in range(1, 5):
+roll_list = list(range(1, 5)) + [7, 8, 9, 10, 11, 14]
+for d in roll_list:
     roll_window = d / 365
     print("\n========== Data Range ==========")
     print(f"Start: {analysis_df.index.min()}")
     print(f"End:   {analysis_df.index.max()}")
 
-    print(f"\nRunning backtest: roll_window = {d} days")
+    # convert business days → approx calendar days
+    # cal_days = d
+    # if cal_days >=5:
+    #     cal_days = cal_days - 2
+    # if cal_days >= 10:
+    #     cal_days = cal_days - 2
+    cal_days = d
+    if cal_days >= 14:
+        cal_days = cal_days - 4
+    elif cal_days >= 7:
+        cal_days = cal_days - 2
+    print(f"\nRunning backtest: roll_days = {d} (calendar days) ≈ T-{cal_days} (business days)")
 
     res = run_futures_backtest(
         analysis_df=analysis_df,
@@ -215,12 +227,18 @@ for d in range(1, 5):
     sharpe = (returns.mean() / (returns.std())) * np.sqrt(252)
 
     results_list.append({
-        "roll_window_days": d,
+        "roll_window_days": cal_days,
         "final_nav": NAV.iloc[-1],
         "total_return_pct": (NAV.iloc[-1] / 100_000_000 - 1) * 100,
-        "sharpe": sharpe
+        "sharpe": sharpe,
+        "market_roll_spread": net_market,
+        "fair_roll_spread": net_fair,
+        "fair-market": net_diff
     })
 
 results_df = pd.DataFrame(results_list)
 results_df = results_df.sort_values("roll_window_days", ascending=False)
+# results_df = results_df.sort_values(["final_nav"], ascending=False)
+pd.set_option('display.width', None)
 print(results_df)
+
