@@ -3,6 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import re
 
+from pandas.core.config_init import performance_warnings
+
 # =========================
 # LOAD DATA
 # =========================
@@ -142,7 +144,7 @@ def run_dynamic_roll_strategy(
             print(
                 f"{date.date()} | Roll ({roll_type}) | "
                 f"T-{T_days} | {near} → {far} | "
-                f"market={market:.2f} | fair={fair:.2f} | diff={diff:.2f} | z={z:.2f}"
+                f"market={market:.2f} | fair={fair:.2f} | diff={diff:.2f} | z={z_lag.iloc[i]:.2f}"
             )
 
         # -------------------------
@@ -224,6 +226,7 @@ def run_dynamic_roll_strategy(
         "positions": positions,
         "front_contract": F,
         "rolling_spread": rolling_spread,
+        "signal": signal_series,
         "trades": trades,
         "sharpe": sharpe,
         "final_nav": NAV.iloc[-1],
@@ -277,7 +280,7 @@ for lb in lookbacks:
             t_cost=2.5,
             lookback=lb,
             z_threshold=z,
-            hedge_contracts=2,
+            hedge_contracts=1,
             plot=False   # turn off plots for speed
         )
 
@@ -294,11 +297,23 @@ for lb in lookbacks:
 
         results_df = pd.DataFrame(results_list)
 
+        performance_metric = 'Total Market Roll'
+        print(f"\n=== Performance Metric: {performance_metric} ===")
         pivot_sharpe = results_df.pivot(
             index="lookback",
             columns="z_threshold",
-            values="Total Market Roll" # change any performance matrics you want
+            values = performance_metric # change any performance matrics you want.
+            # Market - Fair,
         )
+
+        # Create filenames based on parameters
+        tag = f"lb{lb}_z{z}"
+
+        # Save rolling spread
+        res["rolling_spread"].to_csv(f"../data/backtest/rolling_spread_{tag}.csv")
+
+        # Save signal
+        res["signal"].to_csv(f"../data/backtest/signal_{tag}.csv")
 
     print(pivot_sharpe)
 
