@@ -59,8 +59,8 @@ def run_futures_backtest(
                 fair = fair_price.loc[date, far] - fair_price.loc[date, near]
                 market = fut_price.loc[date, far] - fut_price.loc[date, near]
 
-                rolling_spread.loc[date, "fair"] = fair
-                rolling_spread.loc[date, "market"] = market
+                rolling_spread.loc[date, "fair"] = fair *  hedge_contracts
+                rolling_spread.loc[date, "market"] = market * hedge_contracts
                 rolling_spread["difference"] = (
                         rolling_spread["market"] - rolling_spread["fair"]
                 )
@@ -205,7 +205,7 @@ for d in roll_list:
         t_cost=2.5,
         roll_window=roll_window,
         direction=-1,  # +1 = long, -1 = short
-        hedge_contracts=1,  # number of contracts per signal
+        hedge_contracts=1,  # number of contracts per signal (assume we roll the same amount)
         save_path=None,
         plot=False
     )

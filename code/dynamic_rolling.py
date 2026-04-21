@@ -26,8 +26,7 @@ def run_dynamic_roll_strategy(
     t_cost=2.5,
     lookback=20,
     z_threshold=2.0,
-    # direction=-1,
-    # hedge_contracts=1,
+    hedge_contracts=1,
     plot=True
 ):
     total_market_roll = 0.0
@@ -101,6 +100,9 @@ def run_dynamic_roll_strategy(
         # -------------------------
         # Rolling decision
         # -------------------------
+        # be careful of look-ahead bias
+        z_lag = rolling_spread["zscore"].shift(1)
+
         T_now = T.loc[date, near]
 
         rolled = False
@@ -108,7 +110,7 @@ def run_dynamic_roll_strategy(
 
         # SIGNAL ROLL (T-10)
         if (T_now <= 14/365) and (not pd.isna(z)):
-            if z > z_threshold:
+            if z_lag.iloc[i] > z_threshold:
                 front_idx += 1
                 rolled = True
                 roll_type = "SIGNAL"
@@ -127,8 +129,8 @@ def run_dynamic_roll_strategy(
         if rolled:
             T_days = int(round(T_now * 365))
 
-            total_market_roll += market
-            total_fair_roll += fair
+            total_market_roll += market * hedge_contracts
+            total_fair_roll += fair * hedge_contracts
             roll_count += 1
 
             # Adjust for weekends
@@ -154,7 +156,7 @@ def run_dynamic_roll_strategy(
     positions = pd.DataFrame(0, index=fut_price.index, columns=futures)
 
     for date in positions.index:
-        positions.loc[date, F.loc[date]] = -1
+        positions.loc[date, F.loc[date]] = -1 *  hedge_contracts
 
     # =========================
     # 3. Transaction costs
@@ -198,6 +200,7 @@ def run_dynamic_roll_strategy(
     print(f"Total Rolls: {roll_count}")
     print(f"Signal Rolls: {signal_roll_count}")
     print(f"Forced Rolls: {forced_roll_count}")
+    print(f"Total Trades: {trades.sum():.0f}")
 
     print(f"Total Market Roll: {total_market_roll:.4f}")
     print(f"Total Fair Roll: {total_fair_roll:.4f}")
@@ -221,7 +224,12 @@ def run_dynamic_roll_strategy(
         "positions": positions,
         "front_contract": F,
         "rolling_spread": rolling_spread,
-        "trades": trades
+        "trades": trades,
+        "sharpe": sharpe,
+        "final_nav": NAV.iloc[-1],
+        "total_return": NAV.iloc[-1] / initial_nav - 1,
+        "total_market_roll": total_market_roll,
+        "total_fair_roll": total_fair_roll,
     }
 
 
@@ -240,15 +248,59 @@ futures = [
 
 print(futures)
 
-results = run_dynamic_roll_strategy(
-    analysis_df=analysis_df,
-    futures=futures,
-    initial_nav=100_000_000,
-    multiplier=50,
-    t_cost=2.5,
-    lookback=30,
-    z_threshold=2.0,
-    # direction=-1,
-    # hedge_contracts=1,
-    plot=True,
-)
+# results = run_dynamic_roll_strategy(
+#     analysis_df=analysis_df,
+#     futures=futures,
+#     initial_nav=100_000_000,
+#     multiplier=50,
+#     t_cost=2.5,
+#     lookback=30,
+#     z_threshold=2.0,
+#     hedge_contracts=2,
+#     plot=True,
+# )
+
+lookbacks = [10, 20, 30]
+z_thresholds = [2.0, 2.5, 3.0]
+
+results_list = []
+
+for lb in lookbacks:
+    for z in z_thresholds:
+        print(f"\nRunning: lookback={lb}, z_threshold={z}")
+
+        res = run_dynamic_roll_strategy(
+            analysis_df=analysis_df,
+            futures=futures,
+            initial_nav=100_000_000,
+            multiplier=50,
+            t_cost=2.5,
+            lookback=lb,
+            z_threshold=z,
+            hedge_contracts=2,
+            plot=False   # turn off plots for speed
+        )
+
+        results_list.append({
+            "lookback": lb,
+            "z_threshold": z,
+            "sharpe": res["sharpe"],
+            "final_nav": res["final_nav"],
+            "total_return": res["total_return"],
+            "Total Market Roll": res["total_market_roll"],
+            "Total Fair Roll": res["total_fair_roll"],
+            "Market - Fair": res["total_market_roll"] - res["total_fair_roll"],
+        })
+
+        results_df = pd.DataFrame(results_list)
+
+        pivot_sharpe = results_df.pivot(
+            index="lookback",
+            columns="z_threshold",
+            values="Total Market Roll" # change any performance matrics you want
+        )
+
+    print(pivot_sharpe)
+
+
+        # print(results_df)
