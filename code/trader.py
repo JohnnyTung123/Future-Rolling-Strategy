@@ -44,24 +44,29 @@ def run_dynamic_roll_strategy_with_static_hedge(
     # =========================
     # Compute rolling beta
     # =========================
-    cov = combined_returns ['EqualWeight'].rolling(beta_window, min_periods=1).cov(combined_returns ['^GSPC'])
-    var = combined_returns ['^GSPC'].rolling(beta_window, min_periods=1).var()
+    cov = combined_returns ['EqualWeight'].rolling(beta_window).cov(combined_returns ['^GSPC'])
+    var = combined_returns ['^GSPC'].rolling(beta_window).var()
     beta = (cov / (var + 1e-12)).shift(1)  # avoid look-ahead
 
-    print(beta)
+    start_date = analysis_df.index[0]
+    end_date = analysis_df.index[-1]
+
+    beta = beta.loc[start_date:end_date]
+    combined_returns = combined_returns.loc[start_date:end_date]
 
     # Portfolio NAV (for sizing)
     port_nav = initial_nav * (1 + combined_returns ['EqualWeight']).cumprod()
+    lagged_port_nav = port_nav.shift(1)
 
     # =========================
     # Init
     # =========================
     front_idx = 0
     F = pd.Series(index=fut_price.index, dtype=object)
-
     positions = pd.DataFrame(0.0, index=fut_price.index, columns=futures)
 
     current_contracts = 0.0
+    hedge_initialized = False
 
     signal_series = pd.Series(index=fut_price.index, dtype=float)
 
@@ -85,6 +90,21 @@ def run_dynamic_roll_strategy_with_static_hedge(
 
         near = futures[front_idx]
         far = futures[front_idx + 1]
+
+        # =========================
+        # Initial hedge setup
+        # =========================
+        if (not hedge_initialized) and (not pd.isna(beta.loc[date])):
+            beta_t = beta.loc[date]
+            Ip = lagged_port_nav.loc[date]
+            if pd.isna(Ip):
+                Ip = initial_nav # 2021-09-20: 100M USD
+            F_price = fut_price.loc[date, near]
+            notional = F_price * multiplier
+            current_contracts = (
+                    hedge_ratio * beta_t * Ip / (notional + 1e-12)
+            )
+            hedge_initialized = True
 
         # =========================
         # Spread calc
@@ -137,8 +157,10 @@ def run_dynamic_roll_strategy_with_static_hedge(
 
             # compute hedge size at roll
             beta_t = beta.loc[date]
-            Ip = port_nav.loc[date]
-            F_price = fut_price.loc[date, near]
+            Ip = lagged_port_nav.loc[date] # avoid look-ahead
+            if pd.isna(Ip):
+                Ip = initial_nav
+            F_price = fut_price.loc[date, near] # should I lag?
 
             notional = F_price * multiplier
 
@@ -163,7 +185,9 @@ def run_dynamic_roll_strategy_with_static_hedge(
         # APPLY STATIC HEDGE
         # =========================
         positions.loc[date, F.loc[date]] = -current_contracts
-
+    pd.set_option('display.max_columns', None)
+    pd.set_option('display.max_rows', None)
+    # print(positions)
     # =========================
     # TRANSACTION COST
     # =========================
@@ -177,7 +201,7 @@ def run_dynamic_roll_strategy_with_static_hedge(
 
     fut_pnl = (
         positions.shift(1).fillna(0) * price_diff
-    ).sum(axis=1) * multiplier
+    ).sum(axis=1) * multiplier # multiplier: points PnL -> dollar PnL
 
     fut_pnl -= transaction_cost
     fut_pnl.iloc[0] = 0
@@ -192,7 +216,6 @@ def run_dynamic_roll_strategy_with_static_hedge(
     # =========================
     combined_nav = initial_nav + (port_pnl + fut_pnl).cumsum()
     combined_nav_norm = combined_nav / combined_nav.iloc[0]
-
     # =========================
     # METRICS
     # =========================
@@ -216,6 +239,16 @@ def run_dynamic_roll_strategy_with_static_hedge(
         plt.grid(True)
         plt.legend()
         plt.show()
+
+        # =========================
+        # EXPORT DIAGNOSTICS
+        # =========================
+        output_dir = '../data/backtest/strats_log'
+        positions.to_csv(f'{output_dir}/positions.csv')
+        fut_pnl.to_csv(f'{output_dir}/futures_pnl.csv', header=['fut_pnl'])
+        port_pnl.to_csv(f'{output_dir}/portfolio_pnl.csv', header=['port_pnl'])
+        combined_nav.to_csv(f'{output_dir}/combined_nav.csv', header=['combined_nav'])
+        rolling_spread.to_csv(f'{output_dir}/rolling_spread.csv')
 
     return {
         "combined_nav": combined_nav,
