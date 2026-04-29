@@ -2,6 +2,10 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import re
+import pandas as pd
+
+pd.options.display.float_format = '{:.3f}'.format
+
 
 # =========================
 # LOAD DATA
@@ -34,6 +38,20 @@ def run_dynamic_roll_strategy_with_static_hedge(
     hedge_ratio=1.0,
     plot=True
 ):
+    start_date = analysis_df.index[0]
+    end_date = analysis_df.index[-1]
+
+    print("\n========== Backtesting Period ==========")
+    print(
+        f"Start invest on {start_date} "
+        f"with initial NAV of ${initial_nav:,.0f}"
+    )
+    print(f"End date: {end_date}")
+
+    initial_cost = 0.002 * 1 # e.g. 20 bps
+
+    # initial_nav = initial_nav * (1 - initial_cost) # should I account for initial cost of my long portfolio?
+
     # =========================
     # Extract data
     # =========================
@@ -47,12 +65,10 @@ def run_dynamic_roll_strategy_with_static_hedge(
     cov = combined_returns ['EqualWeight'].rolling(beta_window).cov(combined_returns ['^GSPC'])
     var = combined_returns ['^GSPC'].rolling(beta_window).var()
     beta = (cov / (var + 1e-12)).shift(1)  # avoid look-ahead
-
-    start_date = analysis_df.index[0]
-    end_date = analysis_df.index[-1]
-
     beta = beta.loc[start_date:end_date]
+
     combined_returns = combined_returns.loc[start_date:end_date]
+    combined_returns.iloc[0] = 0 # return accrue after the start day
 
     # Portfolio NAV (for sizing)
     port_nav = initial_nav * (1 + combined_returns ['EqualWeight']).cumprod()
@@ -84,8 +100,9 @@ def run_dynamic_roll_strategy_with_static_hedge(
     # =========================
     for i, date in enumerate(fut_price.index):
 
-        if front_idx >= len(futures) - 1:
+        if front_idx >= len(futures) - 1: # final contract
             F.iloc[i] = futures[front_idx]
+            positions.loc[date, F.iloc[i]] = -current_contracts
             continue
 
         near = futures[front_idx]
@@ -95,11 +112,9 @@ def run_dynamic_roll_strategy_with_static_hedge(
         # Initial hedge setup
         # =========================
         if (not hedge_initialized) and (not pd.isna(beta.loc[date])):
-            beta_t = beta.loc[date]
-            Ip = lagged_port_nav.loc[date]
-            if pd.isna(Ip):
-                Ip = initial_nav # 2021-09-20: 100M USD
-            F_price = fut_price.loc[date, near]
+            beta_t = beta.loc[date] # beta is already lagged
+            Ip = initial_nav # initial portfolio value: 100M USD
+            F_price = fut_price.loc[date, near] # no need lagged right? buy today -> realize the return on tomorrow
             notional = F_price * multiplier
             current_contracts = (
                     hedge_ratio * beta_t * Ip / (notional + 1e-12)
@@ -124,13 +139,13 @@ def run_dynamic_roll_strategy_with_static_hedge(
         # Z-score
         # =========================
         if i >= lookback:
-            window = signal_series.iloc[i - lookback:i]
+            window = signal_series.iloc[i - lookback:i] # exclude today's diff
             z = (diff - window.mean()) / (window.std() + 1e-8)
         else:
             z = np.nan
 
         rolling_spread.loc[date, "zscore"] = z
-        z_lag = rolling_spread["zscore"].shift(1)
+        z_lag = rolling_spread["zscore"].shift(1) # using yesterday z-score
 
         T_now = T.loc[date, near]
 
@@ -157,12 +172,12 @@ def run_dynamic_roll_strategy_with_static_hedge(
 
             # compute hedge size at roll
             beta_t = beta.loc[date]
-            Ip = lagged_port_nav.loc[date] # avoid look-ahead
+            Ip = lagged_port_nav.loc[date] # yesterday portfolio value
             if pd.isna(Ip):
-                Ip = initial_nav
+                Ip = initial_nav # 2021-09-20: 100M USD
             F_price = fut_price.loc[date, near] # should I lag?
 
-            notional = F_price * multiplier
+            notional = F_price * multiplier # multiplier: points PnL -> dollar PnL
 
             if not np.isnan(beta_t):
                 current_contracts = hedge_ratio * beta_t * Ip / (notional + 1e-12)
@@ -185,14 +200,15 @@ def run_dynamic_roll_strategy_with_static_hedge(
         # APPLY STATIC HEDGE
         # =========================
         positions.loc[date, F.loc[date]] = -current_contracts
-    pd.set_option('display.max_columns', None)
-    pd.set_option('display.max_rows', None)
-    # print(positions)
+
     # =========================
     # TRANSACTION COST
     # =========================
     trades = positions.diff().abs().sum(axis=1).fillna(0)
+    trades.iloc[0] = positions.iloc[0].abs().sum()
     transaction_cost = trades * t_cost
+    trades[trades != 0].to_csv('../data/backtest/strats_log/rolling_history.csv')
+    print(trades[trades != 0])
 
     # =========================
     # FUTURES PnL
@@ -204,7 +220,6 @@ def run_dynamic_roll_strategy_with_static_hedge(
     ).sum(axis=1) * multiplier # multiplier: points PnL -> dollar PnL
 
     fut_pnl -= transaction_cost
-    fut_pnl.iloc[0] = 0
 
     # =========================
     # PORTFOLIO PnL
@@ -216,6 +231,7 @@ def run_dynamic_roll_strategy_with_static_hedge(
     # =========================
     combined_nav = initial_nav + (port_pnl + fut_pnl).cumsum()
     combined_nav_norm = combined_nav / combined_nav.iloc[0]
+    print((port_pnl + fut_pnl).isna().sum())
     # =========================
     # METRICS
     # =========================
@@ -289,3 +305,4 @@ res = run_dynamic_roll_strategy_with_static_hedge(
     hedge_ratio=1.0,
     plot=True
 )
+
