@@ -2,17 +2,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import re
-
-# =========================
-# LOAD DATA
-# =========================
-analysis_df = pd.read_csv(
-    '../data/processed/analysis_multi.csv',
-    header=[0, 1],
-    index_col=0
-)
-
-analysis_df.index = pd.to_datetime(analysis_df.index)
+import os
 
 # =========================
 # BACKTEST FUNCTION
@@ -108,9 +98,17 @@ def run_futures_backtest(
     # 6. Save outputs
     # =========================
     if save_path:
-        F.to_csv(f"{save_path}/F.csv")
-        positions.to_csv(f"{save_path}/positions.csv")
-        NAV.to_csv(f"{save_path}/NAV.csv")
+        # convert roll window back to days
+        roll_days = int(round(roll_window * 365))
+
+        roll_path = f"{save_path}/roll_{roll_days}d"
+
+        os.makedirs(roll_path, exist_ok=True)
+
+        F.to_csv(f"{roll_path}/F.csv")
+        positions.to_csv(f"{roll_path}/positions.csv")
+        NAV.to_csv(f"{roll_path}/NAV.csv")
+        rolling_spread.to_csv(f"{roll_path}/rolling_spread.csv")
 
     # =========================
     # 7. Plots
@@ -126,17 +124,17 @@ def run_futures_backtest(
     # =========================
     # 8. Metrics
     # =========================
-    returns = net_pnl / initial_nav
+    # returns = net_pnl / initial_nav
+    #
+    # sharpe = (
+    #     returns.mean() / (returns.std() + 1e-12)
+    # ) * np.sqrt(252)
 
-    sharpe = (
-        returns.mean() / (returns.std() + 1e-12)
-    ) * np.sqrt(252)
-
-    print("\n========== Backtest Summary ==========")
-    print(f"Final NAV: {NAV.iloc[-1]:,.0f}")
-    print(f"Total Return: {(NAV.iloc[-1]/initial_nav - 1)*100:.2f}%")
-    print(f"Sharpe Ratio: {sharpe:.2f}")
-    print(f"Total Rolling: {trades.sum():.0f}")
+    # print("\n========== Backtest Summary ==========")
+    # print(f"Final NAV: {NAV.iloc[-1]:,.0f}")
+    # print(f"Total Return: {(NAV.iloc[-1]/initial_nav - 1)*100:.2f}%")
+    # print(f"Sharpe Ratio: {sharpe:.2f}")
+    # print(f"Total Rolling: {trades.sum():.0f}")
 
     return {
         "NAV": NAV,
@@ -148,10 +146,16 @@ def run_futures_backtest(
         "rolling_spread": rolling_spread
     }
 
+# =========================
+# LOAD DATA
+# =========================
+analysis_df = pd.read_csv(
+    '../data/processed/analysis_multi.csv',
+    header=[0, 1],
+    index_col=0
+)
 
-# =========================
-# RUN BACKTEST
-# =========================
+analysis_df.index = pd.to_datetime(analysis_df.index)
 
 unique_cols = analysis_df.columns.get_level_values(1).unique()
 exclude = ['ESH1', 'ESM1', 'ESU1']
@@ -163,33 +167,22 @@ futures = [
 
 print(futures)
 
-# results = run_futures_backtest(
-#     analysis_df=analysis_df,
-#     futures=futures,
-#     initial_nav=100_000_000,
-#     multiplier=50,
-#     t_cost=2.5,
-#     roll_window=5/365,
-#     save_path='../data/backtest',
-#     plot=True
-# )
-
 # E-mini S&P 500 (ES) futures expire quarterly on the third Friday of March, June, September, and December
 # ISSUE: I don't have access to close price at weekend. T-5(Sunday) is the same as T-4(Monday)
+
+# =========================
+# RUN BACKTEST
+# =========================
+
 results_list = []
 roll_list = list(range(1, 5)) + [7, 8, 9, 10, 11, 14]
+print("\n========== Data Range ==========")
+print(f"Start: {analysis_df.index.min()}")
+print(f"End:   {analysis_df.index.max()}")
+
 for d in roll_list:
     roll_window = d / 365
-    print("\n========== Data Range ==========")
-    print(f"Start: {analysis_df.index.min()}")
-    print(f"End:   {analysis_df.index.max()}")
-
     # convert business days → approx calendar days
-    # cal_days = d
-    # if cal_days >=5:
-    #     cal_days = cal_days - 2
-    # if cal_days >= 10:
-    #     cal_days = cal_days - 2
     cal_days = d
     if cal_days >= 14:
         cal_days = cal_days - 4
@@ -206,7 +199,7 @@ for d in roll_list:
         roll_window=roll_window,
         direction=-1,  # +1 = long, -1 = short
         hedge_contracts=1,  # number of contracts per signal (assume we roll the same amount)
-        save_path=None,
+        save_path='../data/backtest/static_roll_analysis',
         plot=False
     )
 
@@ -229,8 +222,8 @@ for d in roll_list:
     results_list.append({
         "roll_window_days": cal_days,
         "final_nav": NAV.iloc[-1],
-        "total_return_pct": (NAV.iloc[-1] / 100_000_000 - 1) * 100,
-        "sharpe": sharpe,
+        # "total_return_pct": (NAV.iloc[-1] / 100_000_000 - 1) * 100,
+        # "sharpe": sharpe,
         "market_roll_spread": net_market,
         "fair_roll_spread": net_fair,
         "fair-market": net_diff
@@ -238,7 +231,6 @@ for d in roll_list:
 
 results_df = pd.DataFrame(results_list)
 results_df = results_df.sort_values("roll_window_days", ascending=False)
-# results_df = results_df.sort_values(["final_nav"], ascending=False)
 pd.set_option('display.width', None)
 print(results_df)
 
