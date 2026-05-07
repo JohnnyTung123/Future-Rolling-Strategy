@@ -3,20 +3,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import re
 
-from pandas.core.config_init import performance_warnings
-
-# =========================
-# LOAD DATA
-# =========================
-analysis_df = pd.read_csv(
-    '../data/processed/analysis_multi.csv',
-    header=[0, 1],
-    index_col=0
-)
-
-analysis_df.index = pd.to_datetime(analysis_df.index)
-
-
 # =========================
 # BACKTEST FUNCTION
 # =========================
@@ -193,10 +179,10 @@ def run_dynamic_roll_strategy(
         returns.mean() / (returns.std() + 1e-12)
     ) * np.sqrt(252)
 
-    print("\n========== Backtest Summary ==========")
-    print(f"Final NAV: {NAV.iloc[-1]:,.1f}")
-    print(f"Total Return: {(NAV.iloc[-1]/initial_nav - 1)*100:.6f}%")
-    print(f"Sharpe Ratio: {sharpe:.6f}")
+    # print("\n========== Backtest Summary ==========")
+    # print(f"Final NAV: {NAV.iloc[-1]:,.1f}")
+    # print(f"Total Return: {(NAV.iloc[-1]/initial_nav - 1)*100:.6f}%")
+    # print(f"Sharpe Ratio: {sharpe:.6f}")
 
     print("\n========== Roll Cost Summary ==========")
     print(f"Total Rolls: {roll_count}")
@@ -235,10 +221,17 @@ def run_dynamic_roll_strategy(
         "total_fair_roll": total_fair_roll,
     }
 
+# =========================
+# LOAD DATA
+# =========================
+analysis_df = pd.read_csv(
+    '../data/processed/analysis_multi.csv',
+    header=[0, 1],
+    index_col=0
+)
 
-# =========================
-# RUN BACKTEST
-# =========================
+analysis_df.index = pd.to_datetime(analysis_df.index)
+
 unique_cols = analysis_df.columns.get_level_values(1).unique()
 
 exclude = ['ESH1', 'ESM1', 'ESU1']
@@ -251,17 +244,9 @@ futures = [
 
 print(futures)
 
-# results = run_dynamic_roll_strategy(
-#     analysis_df=analysis_df,
-#     futures=futures,
-#     initial_nav=100_000_000,
-#     multiplier=50,
-#     t_cost=2.5,
-#     lookback=30,
-#     z_threshold=2.0,
-#     hedge_contracts=2,
-#     plot=True,
-# )
+# =========================
+# RUN BACKTEST
+# =========================
 
 lookbacks = [10, 20, 30]
 z_thresholds = [2.0, 2.5, 3.0]
@@ -287,35 +272,51 @@ for lb in lookbacks:
         results_list.append({
             "lookback": lb,
             "z_threshold": z,
-            "sharpe": res["sharpe"],
+            # "sharpe": res["sharpe"],
             "final_nav": res["final_nav"],
-            "total_return": res["total_return"],
+            # "total_return": res["total_return"],
             "Total Market Roll": res["total_market_roll"],
             "Total Fair Roll": res["total_fair_roll"],
             "Market - Fair": res["total_market_roll"] - res["total_fair_roll"],
         })
 
+
+        # =========================
+        # Build result table
+        # =========================
         results_df = pd.DataFrame(results_list)
 
-        performance_metric = 'Total Market Roll'
-        print(f"\n=== Performance Metric: {performance_metric} ===")
-        pivot_sharpe = results_df.pivot(
+        # -------------------------
+        # 3 separate metrics
+        # -------------------------
+        pivot_market = results_df.pivot(
             index="lookback",
             columns="z_threshold",
-            values = performance_metric # change any performance matrics you want.
-            # Market - Fair,
+            values="Total Market Roll"
         )
 
-        # Create filenames based on parameters
-        tag = f"lb{lb}_z{z}"
+        pivot_fair = results_df.pivot(
+            index="lookback",
+            columns="z_threshold",
+            values="Total Fair Roll"
+        )
 
-        # Save rolling spread
-        res["rolling_spread"].to_csv(f"../data/backtest/rolling_spread_{tag}.csv")
+        pivot_diff = results_df.pivot(
+            index="lookback",
+            columns="z_threshold",
+            values="Market - Fair"
+        )
 
-        # Save signal
-        res["signal"].to_csv(f"../data/backtest/signal_{tag}.csv")
+    # =========================
+    # Print all 3 tables
+    # =========================
+    print("\n=== Total Market Roll ===")
+    print(pivot_market)
 
-    print(pivot_sharpe)
+    print("\n=== Total Fair Roll ===")
+    print(pivot_fair)
+
+    print("\n=== Market - Fair ===")
+    print(pivot_diff)
 
 
-        # print(results_df)
