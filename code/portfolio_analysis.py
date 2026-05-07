@@ -3,6 +3,7 @@ import pandas as pd
 import yfinance as yf
 import matplotlib.pyplot as plt
 pd.options.display.float_format = '{:.2f}'.format
+pd.set_option('display.max_columns', None)
 
 # ---------------------------
 # Configuration
@@ -12,7 +13,7 @@ TICKERS = [
     "META", "TSLA", "JPM", "V", "JNJ"
 ]
 MARKET_TICKER = "^GSPC"  # S&P 500 Index
-START_DATE = "2020-09-20"
+START_DATE = "2021-09-21"
 END_DATE = "2026-03-21"
 ROLLING_WINDOW = 60
 INITIAL_CAPITAL = 100_000_000
@@ -98,16 +99,53 @@ def create_combined_returns(portfolio_returns, market_returns):
     return combined.dropna()
 
 
-def performance_summary(returns, annualization_factor=252):
-    """Compute annualized return, volatility, and Sharpe ratio."""
+def performance_summary(returns, nav, annualization_factor=252):
+    """Compute full performance statistics."""
+
+    # ---------------------------
+    # Core metrics
+    # ---------------------------
     ann_return = returns.mean() * annualization_factor
     ann_vol = returns.std() * np.sqrt(annualization_factor)
-    sharpe = ann_return / ann_vol
+    sharpe = ann_return / (ann_vol + 1e-12)
 
+    # ---------------------------
+    # Drawdown
+    # ---------------------------
+    cum_max = nav.cummax()
+    drawdown = nav / cum_max - 1
+
+    max_drawdown = drawdown.min()
+
+    # drawdown duration (max consecutive negative period)
+    is_dd = drawdown < 0
+    dd_groups = (is_dd != is_dd.shift()).cumsum()
+    dd_duration = is_dd.groupby(dd_groups).size().max()
+
+    # ---------------------------
+    # Distribution metrics
+    # ---------------------------
+    max_return = returns.max()
+    min_return = returns.min()
+    win_rate = (returns > 0).mean()
+
+    skewness = returns.skew()
+    kurtosis = returns.kurtosis()
+
+    # ---------------------------
+    # Output table
+    # ---------------------------
     return pd.DataFrame({
         "Annualized Return": ann_return,
         "Annualized Volatility": ann_vol,
         "Sharpe Ratio": sharpe,
+        "Max Return": max_return,
+        "Min Return": min_return,
+        "Max Drawdown": max_drawdown,
+        # "Max Drawdown Duration": dd_duration,
+        "Win Rate": win_rate,
+        "Skewness": skewness,
+        "Kurtosis": kurtosis,
     })
 
 
@@ -182,23 +220,14 @@ def main():
     plot_performance(portfolio_value, market_value)
 
     print("\nFinal Portfolio Value:")
-    print(f"Low-Beta Portfolio: ${portfolio_value.iloc[-1]:,.2f}")
+    print(f"EqualWeight Portfolio: ${portfolio_value.iloc[-1]:,.2f}")
     print(f"S&P 500 Benchmark:  ${market_value.iloc[-1]:,.2f}")
 
-    print("Latest Rolling Portfolio Beta:")
-    print(f"{rolling_beta.iloc[-1]:.4f}")
-
-    print("Latest Portfolio Weights:")
-    print(portfolio_weights)
-
-    print("Combined Returns:")
-    print(combined_returns.tail())
+    # print("Daily NAV:")
+    # print(nav_df)
 
     print("Performance Summary:")
-    print(performance_summary(combined_returns).round(4))
-
-    print("Daily NAV:")
-    print(nav_df)
+    print(performance_summary(combined_returns, portfolio_value).round(4))
 
 if __name__ == "__main__":
     main()
