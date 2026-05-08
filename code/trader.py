@@ -25,6 +25,115 @@ combined_returns = pd.read_csv(
 
 combined_returns.index = pd.to_datetime(combined_returns.index)
 
+# =========================
+# Performance Metrics
+# =========================
+def compute_performance_metrics(
+    combined_nav,
+    returns,
+    transaction_cost,
+    trading_days=252
+):
+    """
+    Parameters
+    ----------
+    combined_nav : pd.Series
+        Strategy NAV series
+
+    returns : pd.Series
+        Daily strategy returns
+
+    transaction_cost : pd.Series
+        Daily transaction costs
+
+    trading_days : int
+        Annualization factor
+    """
+
+    # =========================
+    # Basic stats
+    # =========================
+    final_nav = combined_nav.iloc[-1]
+
+    total_return = (
+        combined_nav.iloc[-1] / combined_nav.iloc[0]
+    ) - 1
+
+    n_years = len(returns) / trading_days
+
+    annualized_return = (
+        (1 + total_return) ** (1 / n_years)
+    ) - 1
+
+    annualized_volatility = (
+        returns.std() * np.sqrt(trading_days)
+    )
+
+    sharpe_ratio = (
+        returns.mean() / (returns.std() + 1e-12)
+    ) * np.sqrt(trading_days)
+
+    # =========================
+    # Drawdown
+    # =========================
+    rolling_max = combined_nav.cummax()
+
+    drawdown = (
+        combined_nav - rolling_max
+    ) / rolling_max
+
+    max_drawdown = drawdown.min()
+
+    # =========================
+    # Daily return stats
+    # =========================
+    max_return = returns.max()
+
+    min_return = returns.min()
+
+    win_rate = (
+        (returns > 0).sum() / len(returns)
+    )
+
+    # =========================
+    # Higher moments
+    # =========================
+    skewness = returns.skew()
+
+    kurt = returns.kurtosis()
+
+    # =========================
+    # Calmar Ratio
+    # =========================
+    calmar_ratio = (
+        annualized_return / abs(max_drawdown + 1e-12)
+    )
+
+    # =========================
+    # Transaction cost
+    # =========================
+    total_transaction_cost = transaction_cost.sum()
+
+    # =========================
+    # Output
+    # =========================
+    metrics = pd.Series({
+        "Annualized Return": annualized_return,
+        "Annualized Volatility": annualized_volatility,
+        "Sharpe Ratio": sharpe_ratio,
+        "Calmar Ratio": calmar_ratio,
+        "Max Drawdown": max_drawdown,
+        "Win Rate": win_rate,
+        "Max Daily Return": max_return,
+        "Min Daily Return": min_return,
+        "Skewness": skewness,
+        "Kurtosis": kurt,
+        "Final NAV": final_nav,
+        "Total Transaction Cost": total_transaction_cost
+    })
+
+    return metrics
+
 def run_dynamic_roll_strategy_with_static_hedge(
     analysis_df,
     combined_returns,   # <-- your returns dataframe (^GSPC, EqualWeight)
@@ -234,16 +343,14 @@ def run_dynamic_roll_strategy_with_static_hedge(
     # =========================
     # METRICS
     # =========================
-    returns = (port_pnl + fut_net_pnl) / initial_nav
+    # returns = (port_pnl + fut_net_pnl) / initial_nav
+    returns = combined_nav.pct_change().fillna(0)
 
-    sharpe = (
-        returns.mean() / (returns.std() + 1e-12)
-    ) * np.sqrt(252)
-
-    print("\n========== Combined Strategy ==========")
-    print(f"Final NAV: {combined_nav.iloc[-1]:,.1f}")
-    print(f"Sharpe: {sharpe:.4f}")
-    print(f"Total Rolls: {roll_count}")
+    metrics = compute_performance_metrics(
+        combined_nav=combined_nav,
+        returns=returns,
+        transaction_cost=transaction_cost
+    )
 
     # =========================
     # PLOT
@@ -266,18 +373,15 @@ def run_dynamic_roll_strategy_with_static_hedge(
         rolling_spread.to_csv(f'{output_dir}/rolling_spread.csv')
         transaction_cost.to_csv(f'{output_dir}/transaction_cost.csv')
 
-    return {
-        "combined_nav": combined_nav,
-        "combined_nav_norm": combined_nav_norm,
-        "fut_net_pnl": fut_net_pnl,
-        "port_pnl": port_pnl,
-        "positions": positions,
-        "contracts": positions.abs().sum(axis=1),
-        "beta": beta,
-        "front_contract": F,
-        "rolling_spread": rolling_spread,
-        "sharpe": sharpe
-    }
+    # display
+    print("\n========== PERFORMANCE METRICS ==========")
+    print(metrics.apply(lambda x: f"{x:.4f}"))
+
+    # save
+    metrics.to_csv(
+        "../data/backtest/strats_log/performance_metrics.csv",
+        header=["value"]
+    )
 
 # =========================
 # RUN BACKTEST
@@ -292,7 +396,7 @@ futures = [
     and c not in exclude
 ]
 
-res = run_dynamic_roll_strategy_with_static_hedge(
+run_dynamic_roll_strategy_with_static_hedge(
     analysis_df,
     combined_returns,   # <-- your returns dataframe (^GSPC, EqualWeight)
     futures,
@@ -302,7 +406,7 @@ res = run_dynamic_roll_strategy_with_static_hedge(
     lookback=20,
     z_threshold=2.0,
     beta_window=60,
-    hedge_ratio=1.0,
+    hedge_ratio=1,
     plot=True
 )
 
