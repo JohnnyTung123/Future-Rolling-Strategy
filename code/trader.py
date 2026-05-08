@@ -3,9 +3,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import re
 import pandas as pd
+import os
 
 pd.options.display.float_format = '{:.3f}'.format
-
+pd.set_option('display.max_columns', None)
 
 # =========================
 # LOAD DATA
@@ -145,17 +146,17 @@ def run_dynamic_roll_strategy_with_static_hedge(
     z_threshold=2.0,
     beta_window=60,
     hedge_ratio=1.0,
-    plot=True
+    strategy_name="strategy",
+    plot=False,
 ):
+    # =========================
+    # CREATE OUTPUT FOLDER
+    # =========================
+    output_dir = f'../data/backtest/strats_log/{strategy_name}'
+    os.makedirs(output_dir, exist_ok=True)
+
     start_date = analysis_df.index[0]
     end_date = analysis_df.index[-1]
-
-    print("\n========== Backtesting Period ==========")
-    print(
-        f"Start invest on {start_date} "
-        f"with initial NAV of ${initial_nav:,.0f}"
-    )
-    print(f"End date: {end_date}")
 
     initial_cost = 0.002 * 1 * initial_nav# assume 20 bps
     print(f"Initial cost: {initial_cost:,.0f}")
@@ -316,7 +317,7 @@ def run_dynamic_roll_strategy_with_static_hedge(
     transaction_cost = trades * t_cost
     # not the best way but I have to account for the initial t-cost of long-portfolio
     transaction_cost.iloc[0] += initial_cost
-    trades[trades != 0].to_csv('../data/backtest/strats_log/rolling_history.csv')
+    # trades[trades != 0].to_csv('../data/backtest/strats_log/rolling_history.csv')
 
     # =========================
     # FUTURES PnL
@@ -353,35 +354,77 @@ def run_dynamic_roll_strategy_with_static_hedge(
     )
 
     # =========================
-    # PLOT
+    # Save Logs
+    # =========================
+    positions.to_csv(f'{output_dir}/futures_positions.csv')
+
+    fut_pnl.to_csv(
+        f'{output_dir}/futures_pnl.csv',
+        header=['fut_pnl']
+    )
+
+    port_pnl.to_csv(
+        f'{output_dir}/portfolio_pnl.csv',
+        header=['port_pnl']
+    )
+
+    combined_nav.to_csv(
+        f'{output_dir}/combined_nav.csv',
+        header=['combined_nav']
+    )
+
+    rolling_spread.to_csv(
+        f'{output_dir}/rolling_spread.csv'
+    )
+
+    transaction_cost.to_csv(
+        f'{output_dir}/transaction_cost.csv'
+    )
+
+    metrics.to_csv(
+        f'{output_dir}/performance_metrics.csv',
+        header=['value']
+    )
+
+    # =========================
+    # Plot
     # =========================
     if plot:
-        plt.figure(figsize=(10,5))
-        plt.plot(combined_nav_norm, label='Combined NAV')
+        plt.figure(figsize=(10, 5))
+
+        plt.plot(
+            combined_nav_norm,
+            label=strategy_name,
+            linewidth=2
+        )
+
+        plt.title(f'{strategy_name} NAV')
+        plt.xlabel('Date')
+        plt.ylabel('Normalized NAV')
+
         plt.grid(True)
         plt.legend()
-        plt.show()
 
-        # =========================
-        # EXPORT DIAGNOSTICS
-        # =========================
-        output_dir = '../data/backtest/strats_log'
-        positions.to_csv(f'{output_dir}/futures_positions.csv')
-        fut_pnl.to_csv(f'{output_dir}/futures_pnl.csv', header=['fut_pnl'])
-        port_pnl.to_csv(f'{output_dir}/portfolio_pnl.csv', header=['port_pnl'])
-        combined_nav.to_csv(f'{output_dir}/combined_nav.csv', header=['combined_nav'])
-        rolling_spread.to_csv(f'{output_dir}/rolling_spread.csv')
-        transaction_cost.to_csv(f'{output_dir}/transaction_cost.csv')
+        # save figure
+        plt.savefig(
+            f'{output_dir}/nav_plot.png',
+            dpi=300,
+            bbox_inches='tight'
+        )
+
+        plt.show()
+        plt.close()
 
     # display
     print("\n========== PERFORMANCE METRICS ==========")
     print(metrics.apply(lambda x: f"{x:.4f}"))
 
-    # save
-    metrics.to_csv(
-        "../data/backtest/strats_log/performance_metrics.csv",
-        header=["value"]
-    )
+    return {
+        "metrics": metrics,
+        "combined_nav": combined_nav,
+        "combined_nav_norm": combined_nav_norm
+    }
+
 
 # =========================
 # RUN BACKTEST
@@ -396,17 +439,98 @@ futures = [
     and c not in exclude
 ]
 
-run_dynamic_roll_strategy_with_static_hedge(
-    analysis_df,
-    combined_returns,   # <-- your returns dataframe (^GSPC, EqualWeight)
-    futures,
-    initial_nav=100_000_000,
-    multiplier=50,
-    t_cost=2.5,
-    lookback=20,
-    z_threshold=2.0,
-    beta_window=60,
-    hedge_ratio=1,
-    plot=True
+
+# =========================
+# RUN MULTIPLE STRATEGIES
+# =========================
+start_date = analysis_df.index[0]
+end_date = analysis_df.index[-1]
+
+print("\n========== Backtesting Period ==========")
+print(
+    f"Start invest on {start_date} "
+    f"with initial NAV of ${100_000_000:,.0f}"
 )
+print(f"End date: {end_date}")
+
+strategy_configs = {
+    "no_hedge": 0.0,
+    "quarter_hedge": 0.25,
+    "half_hedge": 0.5,
+    "full_hedge": 1.0
+}
+
+all_metrics = []
+
+all_navs = pd.DataFrame()
+
+for strategy_name, hedge_ratio in strategy_configs.items():
+
+    print("\n")
+    print("=" * 50)
+    print(f"Running: {strategy_name}")
+    print("=" * 50)
+
+    res = run_dynamic_roll_strategy_with_static_hedge(
+        analysis_df=analysis_df,
+        combined_returns=combined_returns,
+        futures=futures,
+        initial_nav=100_000_000,
+        multiplier=50,
+        t_cost=2.5,
+        lookback=20,
+        z_threshold=2.0,
+        beta_window=60,
+        hedge_ratio=hedge_ratio,
+        strategy_name=strategy_name,
+        plot=False,
+    )
+
+    metrics = res["metrics"]
+    nav = res["combined_nav_norm"]
+
+    metrics.name = strategy_name
+
+    all_metrics.append(metrics)
+
+    all_navs[strategy_name] = nav
+
+# =========================
+# COMBINE RESULTS
+# =========================
+results_df = pd.concat(
+    all_metrics,
+    axis=1
+).T
+
+print("\n========== ALL STRATEGY RESULTS ==========")
+print(results_df)
+
+# save
+results_df.to_csv(
+    "../data/backtest/all_strategy_metrics.csv"
+)
+
+# =========================
+# COMPARISON PLOT
+# =========================
+plt.figure(figsize=(12, 6))
+
+for col in all_navs.columns:
+    plt.plot(all_navs.index, all_navs[col], label=col)
+
+plt.title('Strategy Comparison')
+plt.xlabel('Date')
+plt.ylabel('Normalized NAV')
+
+plt.grid(True)
+plt.legend()
+
+plt.savefig(
+    "../data/backtest/all_strategy_comparison.png",
+    dpi=300,
+    bbox_inches='tight'
+)
+
+plt.show()
 
