@@ -159,7 +159,6 @@ def run_dynamic_roll_strategy_with_static_hedge(
     end_date = analysis_df.index[-1]
 
     initial_cost = 0.002 * 1 * initial_nav# assume 20 bps
-    print(f"Initial cost: {initial_cost:,.0f}")
 
     # =========================
     # Extract data
@@ -369,8 +368,8 @@ def run_dynamic_roll_strategy_with_static_hedge(
     )
 
     combined_nav.to_csv(
-        f'{output_dir}/combined_nav.csv',
-        header=['combined_nav']
+        f'{output_dir}/daily_nav.csv',
+        header=['nav']
     )
 
     rolling_spread.to_csv(
