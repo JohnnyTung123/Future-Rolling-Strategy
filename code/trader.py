@@ -48,9 +48,8 @@ def run_dynamic_roll_strategy_with_static_hedge(
     )
     print(f"End date: {end_date}")
 
-    # initial_cost = 0.002 * 1
-
-    # initial_nav = initial_nav * (1 - initial_cost) # should I account for initial cost of my long portfolio?
+    initial_cost = 0.002 * 1 * initial_nav# assume 20 bps
+    print(f"Initial cost: {initial_cost:,.0f}")
 
     # =========================
     # Extract data
@@ -206,6 +205,8 @@ def run_dynamic_roll_strategy_with_static_hedge(
     trades = positions.diff().abs().sum(axis=1).fillna(0)
     trades.iloc[0] = positions.iloc[0].abs().sum()
     transaction_cost = trades * t_cost
+    # not the best way but I have to account for the initial t-cost of long-portfolio
+    transaction_cost.iloc[0] += initial_cost
     trades[trades != 0].to_csv('../data/backtest/strats_log/rolling_history.csv')
 
     # =========================
@@ -218,7 +219,6 @@ def run_dynamic_roll_strategy_with_static_hedge(
     ).sum(axis=1) * multiplier # multiplier: points PnL -> dollar PnL
 
     fut_net_pnl = fut_pnl - transaction_cost
-    print(trades)
 
     # =========================
     # PORTFOLIO PnL
