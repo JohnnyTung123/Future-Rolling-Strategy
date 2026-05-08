@@ -226,7 +226,7 @@ for d in roll_list:
         # "sharpe": sharpe,
         "market_roll_spread": net_market,
         "fair_roll_spread": net_fair,
-        "fair-market": net_diff
+        "market-fair": net_diff
     })
 
 results_df = pd.DataFrame(results_list)
