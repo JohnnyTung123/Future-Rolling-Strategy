@@ -48,7 +48,7 @@ def run_dynamic_roll_strategy_with_static_hedge(
     )
     print(f"End date: {end_date}")
 
-    initial_cost = 0.002 * 1 # e.g. 20 bps
+    # initial_cost = 0.002 * 1
 
     # initial_nav = initial_nav * (1 - initial_cost) # should I account for initial cost of my long portfolio?
 
@@ -73,7 +73,6 @@ def run_dynamic_roll_strategy_with_static_hedge(
     # Portfolio NAV (for sizing)
     port_nav = initial_nav * (1 + combined_returns ['EqualWeight']).cumprod()
     lagged_port_nav = port_nav.shift(1)
-
     # =========================
     # Init
     # =========================
@@ -208,7 +207,6 @@ def run_dynamic_roll_strategy_with_static_hedge(
     trades.iloc[0] = positions.iloc[0].abs().sum()
     transaction_cost = trades * t_cost
     trades[trades != 0].to_csv('../data/backtest/strats_log/rolling_history.csv')
-    print(trades[trades != 0])
 
     # =========================
     # FUTURES PnL
@@ -219,7 +217,8 @@ def run_dynamic_roll_strategy_with_static_hedge(
         positions.shift(1).fillna(0) * price_diff
     ).sum(axis=1) * multiplier # multiplier: points PnL -> dollar PnL
 
-    fut_pnl -= transaction_cost
+    fut_net_pnl = fut_pnl - transaction_cost
+    print(trades)
 
     # =========================
     # PORTFOLIO PnL
@@ -229,13 +228,13 @@ def run_dynamic_roll_strategy_with_static_hedge(
     # =========================
     # COMBINED NAV
     # =========================
-    combined_nav = initial_nav + (port_pnl + fut_pnl).cumsum()
+    combined_nav = initial_nav + (port_pnl + fut_net_pnl).cumsum()
     combined_nav_norm = combined_nav / combined_nav.iloc[0]
-    print((port_pnl + fut_pnl).isna().sum())
+
     # =========================
     # METRICS
     # =========================
-    returns = (port_pnl + fut_pnl) / initial_nav
+    returns = (port_pnl + fut_net_pnl) / initial_nav
 
     sharpe = (
         returns.mean() / (returns.std() + 1e-12)
@@ -260,16 +259,17 @@ def run_dynamic_roll_strategy_with_static_hedge(
         # EXPORT DIAGNOSTICS
         # =========================
         output_dir = '../data/backtest/strats_log'
-        positions.to_csv(f'{output_dir}/positions.csv')
+        positions.to_csv(f'{output_dir}/futures_positions.csv')
         fut_pnl.to_csv(f'{output_dir}/futures_pnl.csv', header=['fut_pnl'])
         port_pnl.to_csv(f'{output_dir}/portfolio_pnl.csv', header=['port_pnl'])
         combined_nav.to_csv(f'{output_dir}/combined_nav.csv', header=['combined_nav'])
         rolling_spread.to_csv(f'{output_dir}/rolling_spread.csv')
+        transaction_cost.to_csv(f'{output_dir}/transaction_cost.csv')
 
     return {
         "combined_nav": combined_nav,
         "combined_nav_norm": combined_nav_norm,
-        "fut_pnl": fut_pnl,
+        "fut_net_pnl": fut_net_pnl,
         "port_pnl": port_pnl,
         "positions": positions,
         "contracts": positions.abs().sum(axis=1),
