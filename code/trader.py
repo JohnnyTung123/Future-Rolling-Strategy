@@ -415,8 +415,8 @@ def run_dynamic_roll_strategy_with_static_hedge(
         plt.close()
 
     # display
-    print("\n========== PERFORMANCE METRICS ==========")
-    print(metrics.apply(lambda x: f"{x:.4f}"))
+    # print("\n========== PERFORMANCE METRICS ==========")
+    # print(metrics.apply(lambda x: f"{x:.4f}"))
 
     return {
         "metrics": metrics,
@@ -465,10 +465,10 @@ all_navs = pd.DataFrame()
 
 for strategy_name, hedge_ratio in strategy_configs.items():
 
-    print("\n")
-    print("=" * 50)
-    print(f"Running: {strategy_name}")
-    print("=" * 50)
+    # print("\n")
+    # print("=" * 50)
+    # print(f"Running: {strategy_name}")
+    # print("=" * 50)
 
     res = run_dynamic_roll_strategy_with_static_hedge(
         analysis_df=analysis_df,
