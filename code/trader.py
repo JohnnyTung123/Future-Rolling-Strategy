@@ -506,7 +506,7 @@ print("\n========== ALL STRATEGY RESULTS ==========")
 print(results_df)
 
 # save
-results_df.to_csv(
+results_df.round(4).to_csv(
     "../data/backtest/all_strategy_metrics.csv"
 )
 
@@ -533,3 +533,42 @@ plt.savefig(
 
 plt.show()
 
+# =========================
+# DRAWDOWN COMPARISON PLOT
+# =========================
+drawdowns = pd.DataFrame(index=all_navs.index)
+
+for col in all_navs.columns:
+
+    rolling_max = all_navs[col].cummax()
+
+    drawdown = (
+        all_navs[col] - rolling_max
+    ) / rolling_max
+
+    drawdowns[col] = drawdown
+
+# plot
+plt.figure(figsize=(12, 6))
+
+for col in drawdowns.columns:
+    plt.plot(
+        drawdowns.index,
+        drawdowns[col],
+        label=col
+    )
+
+plt.title('Strategy Drawdown Comparison')
+plt.xlabel('Date')
+plt.ylabel('Drawdown')
+
+plt.grid(True)
+plt.legend()
+
+plt.savefig(
+    "../data/backtest/all_strategy_drawdown.png",
+    dpi=300,
+    bbox_inches='tight'
+)
+
+plt.show()
